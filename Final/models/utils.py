@@ -6,8 +6,10 @@ import seaborn as sns
 
 karachi_prefix = "../data/karachi/Karachi_PM2.5_"
 new_delhi_prefix = "../data/new_delhi/NewDelhi_PM2.5_"
+chennai_prefix = "../data/chennai/Chennai_PM2.5_"
 karachi_suffix = "_YTD.csv"
 new_delhi_suffix = "_YTD.csv"
+
 
 aqi_levels = {
     "Good (0-50)": (50, 'green'),
@@ -37,7 +39,7 @@ def build_delhi_df(years):
     return delhi_df
 
 def create_chennai_filepath(year):
-    new_delhi_filepath = f"{new_delhi_prefix}{year}{new_delhi_suffix}"
+    new_delhi_filepath = f"{chennai_prefix}{year}{new_delhi_suffix}"
     return new_delhi_filepath
 
 def build_chennai_df(years):
@@ -55,7 +57,7 @@ def build_chennai_df(years):
     return chennai_df 
 
 def build_AQI_time_graph(df, title):
-    key_points = ["2015-01-01 01:00 AM", "2016-01-01 01:00 AM", "2017-01-01 01:00 AM", "2018-01-01 01:00 AM", "2019-01-01 01:00 AM", "2020-01-01 01:00 AM", "2021-01-01 01:00 AM", "2022-01-01 01:00 AM", "2023-01-01 01:00 AM", "2024-01-01 01:00 AM", "2025-01-01 01:00 AM", ]
+    key_points = ["2015-01-01 01:00 AM", "2016-01-01 01:00 AM", "2017-01-01 01:00 AM", "2018-01-01 01:00 AM", "2019-01-01 01:00 AM", "2020-01-01 01:00 AM", "2021-01-01 01:00 AM", "2022-01-01 01:00 AM", "2023-01-01 01:00 AM", "2024-01-01 01:00 AM", "2025-01-02 01:00 AM", ]
     labels = ["2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"]
     df_AQI = df["AQI"].to_numpy()
     df_datetime = df["Date (LT)"].to_numpy()
@@ -71,48 +73,36 @@ def build_AQI_time_graph(df, title):
     return plot
 
 def build_DiD_graph(delhi_df, chennai_df, policy_date='2018-01-01', rolling_window=30):
-    # Convert to datetime and sort
     delhi_df['datetime'] = pd.to_datetime(delhi_df['Date (LT)'])
     chennai_df['datetime'] = pd.to_datetime(chennai_df['Date (LT)'])
 
-    delhi_df = delhi_df.sort_values('datetime').set_index('datetime')
-    chennai_df = chennai_df.sort_values('datetime').set_index('datetime')
+    delhi_df = delhi_df.groupby('datetime').mean(numeric_only=True).sort_index()
+    chennai_df = chennai_df.groupby('datetime').mean(numeric_only=True).sort_index()
 
-    # Step 2: Rolling mean smoothing
     delhi_df['AQI_smooth'] = delhi_df['AQI'].rolling(window=rolling_window, min_periods=1).mean()
     chennai_df['AQI_smooth'] = chennai_df['AQI'].rolling(window=rolling_window, min_periods=1).mean()
 
-    # Step 3: Combine datasets
     combined = pd.DataFrame({
         'Delhi': delhi_df['AQI_smooth'],
         'Chennai': chennai_df['AQI_smooth']
     }).dropna()
 
-    # Step 4: Split around policy date
     policy_date = pd.to_datetime(policy_date)
     pre_policy = combined[combined.index < policy_date]
     post_policy = combined[combined.index >= policy_date]
 
-
-    # Step 5: Estimate Delhi counterfactual post-policy
-    # Calculate average change in Chennai (control)
     chennai_change = post_policy['Chennai'].mean() - pre_policy['Chennai'].mean()
 
-    # Estimate counterfactual: Delhi pre-policy + Chennai change
     delhi_counterfactual_mean = pre_policy['Delhi'].mean() + chennai_change
     counterfactual = pd.Series(delhi_counterfactual_mean, index=post_policy.index)
 
-    # Step 6: Plot
     plt.figure(figsize=(14, 6))
 
-    # Actual data
     plt.plot(combined.index, combined['Delhi'], label='New Delhi (Actual)', color='red')
     plt.plot(combined.index, combined['Chennai'], label='Chennai (Control)', color='blue')
 
-    # Counterfactual
     plt.plot(counterfactual.index, counterfactual, label='New Delhi (Counterfactual)', linestyle='dotted', color='gray')
 
-    # Highlight DiD gap
     plt.fill_between(post_policy.index,
                      post_policy['Delhi'],
                      counterfactual,
@@ -122,7 +112,6 @@ def build_DiD_graph(delhi_df, chennai_df, policy_date='2018-01-01', rolling_wind
                      alpha=0.3,
                      label='DiD Effect')
 
-    # Policy marker
     plt.axvline(policy_date, color='black', linestyle='--', label='Policy (2018)')
     plt.text(policy_date, combined['Delhi'].max(), 'Policy Introduced', rotation=90, va='top', ha='right')
 
@@ -133,6 +122,37 @@ def build_DiD_graph(delhi_df, chennai_df, policy_date='2018-01-01', rolling_wind
     plt.grid(True)
     plt.tight_layout()
     plt.show()
-   
+    
+def build_DiD_model(treatment_df, control_df, policy_date = '2018-01-01'):
+    # Convert datetime
+    treatment_df['datetime'] = pd.to_datetime(treatment_df['Date (LT)'])
+    treatment_df['datetime'] = pd.to_datetime(treatment_df['Date (LT)'])
+
+    # Label the datasets
+    delhi_df = delhi_df.copy()
+    chennai_df = chennai_df.copy()
+    delhi_df['city'] = 'delhi'
+    chennai_df['city'] = 'chennai'
+
+    # Combine
+    df = pd.concat([delhi_df, chennai_df])
+    
+    # Remove missing
+    df = df.dropna(subset=['AQI'])
+
+    # Group by date to avoid duplicates
+    df = df.groupby(['datetime', 'city']).mean(numeric_only=True).reset_index()
+
+    # Create variables
+    df['post'] = (df['datetime'] >= pd.to_datetime(policy_date)).astype(int)
+    df['treatment'] = (df['city'] == 'delhi').astype(int)
+    df['did'] = df['post'] * df['treatment']
+
+    # Run regression
+    model = smf.ols('AQI ~ treatment + post + did', data=df).fit()
+
+    print(model.summary())
+
+    return model
     
     
