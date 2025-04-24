@@ -7,9 +7,11 @@ import seaborn as sns
 karachi_prefix = "../data/karachi/Karachi_PM2.5_"
 new_delhi_prefix = "../data/new_delhi/NewDelhi_PM2.5_"
 chennai_prefix = "../data/chennai/Chennai_PM2.5_"
+dhaka_prefix = "../data/dhaka/Dhaka_PM2.5_"
 karachi_suffix = "_YTD.csv"
 new_delhi_suffix = "_YTD.csv"
 chennai_suffix = "_YTD.csv"
+dhaka_suffix = "_YTD.csv"
 
 
 aqi_levels = {
@@ -56,6 +58,42 @@ def build_chennai_df(years):
     control_df = control_df.dropna()
     
     return control_df
+
+def create_dhaka_filepath(year):
+    dhaka_filepath = f"{dhaka_prefix}{year}{dhaka_suffix}"
+    return dhaka_filepath
+
+def build_dhaka_df(years):
+    
+    dhaka_df = pd.read_csv(create_new_delhi_filepath(years[0]))
+    years.pop(0)
+    
+    for year in years:
+        dhaka_df = pd.concat([dhaka_df, pd.read_csv(create_dhaka_filepath(year))],ignore_index=True)
+    
+    dhaka_df = dhaka_df.drop(["Parameter"], axis=1)
+    dhaka_df = dhaka_df.replace(to_replace="Invalid", value=np.nan)
+    dhaka_df = dhaka_df.dropna()
+    
+    return dhaka_df
+
+def create_karachi_filepath(year):
+    karachi_filepath = f"{karachi_prefix}{year}{karachi_suffix}"
+    return karachi_filepath
+
+def build_karachi_df(years):
+    
+    karachi_df = pd.read_csv(create_karachi_filepath(years[0]))
+    years.pop(0)
+    
+    for year in years:
+        karachi_df = pd.concat([karachi_df, pd.read_csv(create_karachi_filepath(year))],ignore_index=True)
+    
+    karachi_df = karachi_df.drop(["Parameter"], axis=1)
+    karachi_df = karachi_df.replace(to_replace="Invalid", value=np.nan)
+    karachi_df = karachi_df.dropna()
+    
+    return karachi_df
 
 def build_monthly_df(df):
     df["timestamp"] = pd.to_datetime(df['Date (LT)'])
