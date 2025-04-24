@@ -122,7 +122,7 @@ def build_AQI_time_graph(df, x_label, y_label, title, filename):
     plt.savefig(filename)
     return plot
 
-def build_DiD_graph(treatment_df, control_df, target_x, filename, policy_date='2018-01-01', rolling_window=30):
+def build_DiD_graph(treatment_df, control_df, target_x, filename, policy_date='2019-10-01', rolling_window=30):
     treatment_df['datetime'] = pd.to_datetime(treatment_df[target_x])
     control_df['datetime'] = pd.to_datetime(control_df[target_x])
 
@@ -141,28 +141,30 @@ def build_DiD_graph(treatment_df, control_df, target_x, filename, policy_date='2
     pre_policy = combined[combined.index < policy_date]
     post_policy = combined[combined.index >= policy_date]
 
-    chennai_change = post_policy['Chennai'].mean() - pre_policy['Chennai'].mean()
 
-    delhi_counterfactual_mean = pre_policy['Delhi'].mean() + chennai_change
-    counterfactual = pd.Series(delhi_counterfactual_mean, index=post_policy.index)
+    pre_delta = (pre_policy['Delhi'] - pre_policy['Chennai']).mean()
+    counterfactual = post_policy['Chennai'] + pre_delta
+
+
 
     plt.figure(figsize=(14, 6))
 
-    plt.plot(combined.index, combined['Delhi'], label='New Delhi (Actual)', color='red')
-    plt.plot(combined.index, combined['Chennai'], label='Chennai (Control)', color='blue')
+    plt.plot(combined.index, combined['Delhi'], label='Karachi (Actual)', color='red')
+    plt.plot(combined.index, combined['Chennai'], label='Dhaka (Control)', color='blue')
 
     plt.plot(counterfactual.index, counterfactual, label='New Delhi (Counterfactual)', linestyle='dotted', color='gray')
 
     plt.fill_between(post_policy.index,
                      post_policy['Delhi'],
                      counterfactual,
-                     where=(post_policy['Delhi'] > counterfactual),
+                     where=(post_policy['Delhi'] < counterfactual),
                      interpolate=True,
                      color='orange',
                      alpha=0.3,
-                     label='DiD Effect')
+                     label='Estimated Policy Effect')
 
-    plt.axvline(policy_date, color='black', linestyle='--', label='Policy (2018)')
+
+    plt.axvline(policy_date, color='black', linestyle='--', label='Policy (2019)')
     plt.text(policy_date, combined['Delhi'].max(), 'Policy Introduced', rotation=90, va='top', ha='right')
 
     plt.title('Difference-in-Differences: Daily AQI (Smoothed)')
